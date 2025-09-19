@@ -93,8 +93,10 @@ export async function POST(request: NextRequest) {
           callbackData === 'confirm_registration' || 
           callbackData === 'restart_registration') {
         
+        console.log(`Processing registration callback: ${callbackData} for user ${userId}`)
+        
         const botLogic = new BotLogic()
-        const response = await botLogic.processMessage(userId, callbackData, telegramId, username)
+        const response = await botLogic.handleRegistrationFlow(telegramId, callbackData, username)
         
         if (response) {
           const sent = await sendTelegramMessage(chatId, response.text, response.keyboard)

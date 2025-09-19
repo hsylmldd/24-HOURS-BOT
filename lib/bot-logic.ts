@@ -143,7 +143,8 @@ export class BotLogic {
     }
   }
 
-  private async handleRegistrationFlow(telegramId: number, message: string, username?: string): Promise<{ text: string; keyboard?: any }> {
+  // Make handleRegistrationFlow public so it can be called from webhook
+  public async handleRegistrationFlow(telegramId: number, message: string, username?: string): Promise<{ text: string; keyboard?: any }> {
     const normalizedMessage = message.toLowerCase().trim();
     const currentState = await this.getRegistrationState(telegramId);
 

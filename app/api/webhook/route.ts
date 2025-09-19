@@ -72,7 +72,9 @@ async function answerCallbackQuery(callbackQueryId: string, text?: string) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    console.log('Webhook received:', JSON.stringify(body, null, 2))
+    console.log('=== WEBHOOK RECEIVED ===')
+    console.log('Full body:', JSON.stringify(body, null, 2))
+    console.log('========================')
 
     // Handle Telegram callback query (button presses)
     if (body.callback_query) {
@@ -83,6 +85,13 @@ export async function POST(request: NextRequest) {
       const username = callbackQuery.from.username
       const callbackData = callbackQuery.data
       const messageId = callbackQuery.message.message_id
+
+      console.log(`=== CALLBACK QUERY ===`)
+      console.log(`User ID: ${userId}, Telegram ID: ${telegramId}`)
+      console.log(`Username: ${username}`)
+      console.log(`Callback Data: ${callbackData}`)
+      console.log(`Chat ID: ${chatId}`)
+      console.log(`=====================`)
 
       // Answer callback query first
       await answerCallbackQuery(callbackQuery.id)
@@ -98,8 +107,11 @@ export async function POST(request: NextRequest) {
         const botLogic = new BotLogic()
         const response = await botLogic.handleRegistrationFlow(telegramId, callbackData, username)
         
+        console.log('Registration response:', response)
+        
         if (response) {
           const sent = await sendTelegramMessage(chatId, response.text, response.keyboard)
+          console.log('Message sent:', sent)
           
           if (sent) {
             await dbOperations.saveMessage(userId, `[CALLBACK] ${callbackData}`, response.text)

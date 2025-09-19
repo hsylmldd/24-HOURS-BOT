@@ -31,7 +31,7 @@ export class BotLogic {
       const userHistory = await dbOperations.getUserMessages(userId, 5)
       
       // Proses pesan berdasarkan konten
-      if (this.isGreeting(normalizedMessage)) {
+      if (normalizedMessage.includes('/start') || this.isGreeting(normalizedMessage)) {
         return this.getRandomResponse(this.responses.greeting)
       }
 

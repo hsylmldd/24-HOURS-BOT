@@ -36,32 +36,22 @@ export class BotLogic {
     }
   }
 
-  // Registration state management - now using database for persistence
+  // Registration state management - using in-memory fallback until database table is created
+  private registrationStates = new Map<number, {
+    step: 'role_selection' | 'name_input' | 'confirmation';
+    role?: 'HD' | 'TEKNISI';
+    name?: string;
+    username?: string;
+  }>();
+
   private async getRegistrationState(telegramId: number): Promise<{
     step: 'role_selection' | 'name_input' | 'confirmation';
     role?: 'HD' | 'TEKNISI';
     name?: string;
     username?: string;
   } | null> {
-    try {
-      const { data, error } = await supabaseAdmin
-        .from('registration_states')
-        .select('*')
-        .eq('telegram_id', telegramId)
-        .single();
-      
-      if (error || !data) return null;
-      
-      return {
-        step: data.step,
-        role: data.role,
-        name: data.name,
-        username: data.username
-      };
-    } catch (error) {
-      console.error('Error getting registration state:', error);
-      return null;
-    }
+    // Use in-memory storage as fallback
+    return this.registrationStates.get(telegramId) || null;
   }
 
   private async setRegistrationState(telegramId: number, state: {
@@ -70,31 +60,13 @@ export class BotLogic {
     name?: string;
     username?: string;
   }): Promise<void> {
-    try {
-      await supabaseAdmin
-        .from('registration_states')
-        .upsert({
-          telegram_id: telegramId,
-          step: state.step,
-          role: state.role,
-          name: state.name,
-          username: state.username,
-          updated_at: new Date().toISOString()
-        });
-    } catch (error) {
-      console.error('Error setting registration state:', error);
-    }
+    // Use in-memory storage as fallback
+    this.registrationStates.set(telegramId, state);
   }
 
   private async clearRegistrationState(telegramId: number): Promise<void> {
-    try {
-      await supabaseAdmin
-        .from('registration_states')
-        .delete()
-        .eq('telegram_id', telegramId);
-    } catch (error) {
-      console.error('Error clearing registration state:', error);
-    }
+    // Use in-memory storage as fallback
+    this.registrationStates.delete(telegramId);
   }
 
   async processMessage(userId: string, message: string, telegramId: number, username?: string): Promise<{ text: string; keyboard?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } }> {

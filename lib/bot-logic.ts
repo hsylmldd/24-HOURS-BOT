@@ -235,10 +235,10 @@ export class BotLogic {
     // Handle confirmation
     if (currentState.step === 'confirmation' && currentState.role && currentState.name) {
       if (message === 'confirm_registration' || normalizedMessage === 'ya') {
-        // Register user
+        // Register user to database
         const newUser = await AuthService.registerUser({
           telegram_id: telegramId,
-          username: currentState.username,
+          username: username,
           full_name: currentState.name,
           role: currentState.role
         });

@@ -1,4 +1,5 @@
 import { dbOperations } from './supabase'
+import { AuthService } from './auth'
 
 export class BotLogic {
   private responses = {
@@ -20,65 +21,230 @@ export class BotLogic {
       'Maaf, saya tidak mengerti pesan Anda. Ketik /help untuk melihat perintah yang tersedia.',
       'Saya belum bisa memahami pesan tersebut. Coba ketik /help untuk bantuan.',
       'Hmm, saya tidak yakin bagaimana merespons itu. Ketik /help untuk melihat apa yang bisa saya lakukan.'
-    ]
+    ],
+    registration: {
+      welcome: 'Selamat datang! Anda belum terdaftar dalam sistem. Silakan pilih role Anda:',
+      roleSelected: (role: string) => `Anda memilih role sebagai ${role}. Sekarang masukkan nama lengkap Anda atau ketik "auto" untuk menggunakan username Telegram Anda.`,
+      nameConfirm: (name: string, role: string) => `Konfirmasi pendaftaran:\nNama: ${name}\nRole: ${role}\n\nKetik "ya" untuk konfirmasi atau "tidak" untuk mengulang.`,
+      success: (name: string, role: string) => {
+        const welcomeMessages = {
+          'HD': `🎉 Selamat datang, ${name}!\n\nAnda telah terdaftar sebagai Help Desk (HD).\n\nSebagai HD, Anda dapat:\n• Membuat order baru\n• Melihat semua order\n• Assign teknisi ke order\n• Memantau progress order\n• Melihat laporan\n\nKetik /help untuk melihat perintah yang tersedia.`,
+          'TEKNISI': `🎉 Selamat datang, ${name}!\n\nAnda telah terdaftar sebagai Teknisi.\n\nSebagai Teknisi, Anda dapat:\n• Melihat order yang ditugaskan\n• Update progress order\n• Upload evidence\n• Melihat detail order\n• Update status order\n\nKetik /help untuk melihat perintah yang tersedia.`
+        };
+        return welcomeMessages[role as keyof typeof welcomeMessages] || `Selamat datang, ${name}!`;
+      }
+    }
   }
 
-  async processMessage(userId: string, message: string): Promise<string> {
+  // Registration state management
+  private registrationStates = new Map<number, {
+    step: 'role_selection' | 'name_input' | 'confirmation';
+    role?: 'HD' | 'TEKNISI';
+    name?: string;
+    username?: string;
+  }>();
+
+  async processMessage(userId: string, message: string, telegramId: number, username?: string): Promise<{ text: string; keyboard?: any }> {
     const normalizedMessage = message.toLowerCase().trim()
 
     try {
+      // Check if user is registered
+      const user = await AuthService.getUserByTelegramId(telegramId);
+      
+      // Handle registration flow for unregistered users
+      if (!user) {
+        return await this.handleRegistrationFlow(telegramId, message, username);
+      }
+
       // Ambil riwayat pesan user untuk konteks
       const userHistory = await dbOperations.getUserMessages(userId, 5)
       
       // Proses pesan berdasarkan konten
       if (normalizedMessage.includes('/start') || this.isGreeting(normalizedMessage)) {
-        return this.getRandomResponse(this.responses.greeting)
+        return { text: this.getRandomResponse(this.responses.greeting) }
       }
 
       if (normalizedMessage.includes('/help') || normalizedMessage.includes('bantuan')) {
-        return this.getRandomResponse(this.responses.help)
+        return { text: this.getRandomResponse(this.responses.help) }
       }
 
       if (normalizedMessage.includes('/status')) {
-        return this.getRandomResponse(this.responses.status)
+        return { text: this.getRandomResponse(this.responses.status) }
       }
 
       if (normalizedMessage.includes('/time') || normalizedMessage.includes('waktu')) {
-        return this.responses.time()
+        return { text: this.responses.time() }
       }
 
       if (normalizedMessage.includes('/stats')) {
-        return await this.getStatsResponse()
+        return { text: await this.getStatsResponse() }
       }
 
       // Respons berdasarkan konteks atau pola tertentu
       if (normalizedMessage.includes('terima kasih') || normalizedMessage.includes('thanks')) {
-        return 'Sama-sama! Senang bisa membantu Anda. 😊'
+        return { text: 'Sama-sama! Senang bisa membantu Anda. 😊' }
       }
 
       if (normalizedMessage.includes('selamat pagi')) {
-        return 'Selamat pagi! Semoga hari Anda menyenangkan! ☀️'
+        return { text: 'Selamat pagi! Semoga hari Anda menyenangkan! ☀️' }
       }
 
       if (normalizedMessage.includes('selamat siang')) {
-        return 'Selamat siang! Bagaimana kabar Anda hari ini? 🌞'
+        return { text: 'Selamat siang! Bagaimana kabar Anda hari ini? 🌞' }
       }
 
       if (normalizedMessage.includes('selamat malam')) {
-        return 'Selamat malam! Semoga istirahat Anda nyenyak! 🌙'
+        return { text: 'Selamat malam! Semoga istirahat Anda nyenyak! 🌙' }
       }
 
       if (normalizedMessage.includes('bot') && normalizedMessage.includes('bagaimana')) {
-        return 'Saya baik-baik saja! Saya bot yang berjalan 24/7 menggunakan Next.js dan Supabase. Terima kasih sudah bertanya! 🤖'
+        return { text: 'Saya baik-baik saja! Saya bot yang berjalan 24/7 menggunakan Next.js dan Supabase. Terima kasih sudah bertanya! 🤖' }
       }
 
       // Respons default
-      return this.getRandomResponse(this.responses.default)
+      return { text: this.getRandomResponse(this.responses.default) }
 
     } catch (error) {
       console.error('Error processing message:', error)
-      return 'Maaf, terjadi kesalahan saat memproses pesan Anda. Silakan coba lagi.'
+      return { text: 'Maaf, terjadi kesalahan saat memproses pesan Anda. Silakan coba lagi.' }
     }
+  }
+
+  private async handleRegistrationFlow(telegramId: number, message: string, username?: string): Promise<{ text: string; keyboard?: any }> {
+    const normalizedMessage = message.toLowerCase().trim();
+    const currentState = this.registrationStates.get(telegramId);
+
+    // Start registration flow
+    if (!currentState) {
+      this.registrationStates.set(telegramId, { step: 'role_selection', username });
+      return {
+        text: this.responses.registration.welcome,
+        keyboard: {
+          inline_keyboard: [
+            [
+              { text: '👨‍💻 Teknisi', callback_data: 'register_teknisi' },
+              { text: '🎧 Help Desk (HD)', callback_data: 'register_hd' }
+            ]
+          ]
+        }
+      };
+    }
+
+    // Handle role selection
+    if (currentState.step === 'role_selection') {
+      let selectedRole: 'HD' | 'TEKNISI' | null = null;
+      
+      if (message === 'register_teknisi' || normalizedMessage.includes('teknisi')) {
+        selectedRole = 'TEKNISI';
+      } else if (message === 'register_hd' || normalizedMessage.includes('hd') || normalizedMessage.includes('help desk')) {
+        selectedRole = 'HD';
+      }
+
+      if (selectedRole) {
+        this.registrationStates.set(telegramId, {
+          ...currentState,
+          step: 'name_input',
+          role: selectedRole
+        });
+        
+        return {
+          text: this.responses.registration.roleSelected(selectedRole),
+          keyboard: {
+            inline_keyboard: [
+              [{ text: '🤖 Gunakan Username Telegram', callback_data: 'use_telegram_username' }]
+            ]
+          }
+        };
+      }
+      
+      return {
+        text: 'Silakan pilih role Anda dengan mengklik tombol di atas.',
+        keyboard: {
+          inline_keyboard: [
+            [
+              { text: '👨‍💻 Teknisi', callback_data: 'register_teknisi' },
+              { text: '🎧 Help Desk (HD)', callback_data: 'register_hd' }
+            ]
+          ]
+        }
+      };
+    }
+
+    // Handle name input
+    if (currentState.step === 'name_input' && currentState.role) {
+      let finalName = '';
+      
+      if (message === 'use_telegram_username' || normalizedMessage === 'auto') {
+        finalName = username || 'User';
+      } else {
+        finalName = message.trim();
+      }
+
+      this.registrationStates.set(telegramId, {
+        ...currentState,
+        step: 'confirmation',
+        name: finalName
+      });
+
+      return {
+        text: this.responses.registration.nameConfirm(finalName, currentState.role),
+        keyboard: {
+          inline_keyboard: [
+            [
+              { text: '✅ Ya, Daftar', callback_data: 'confirm_registration' },
+              { text: '❌ Tidak, Ulangi', callback_data: 'restart_registration' }
+            ]
+          ]
+        }
+      };
+    }
+
+    // Handle confirmation
+    if (currentState.step === 'confirmation' && currentState.role && currentState.name) {
+      if (message === 'confirm_registration' || normalizedMessage === 'ya') {
+        // Register user
+        const newUser = await AuthService.registerUser({
+          telegram_id: telegramId,
+          username: currentState.username,
+          full_name: currentState.name,
+          role: currentState.role
+        });
+
+        if (newUser) {
+          this.registrationStates.delete(telegramId);
+          return {
+            text: this.responses.registration.success(currentState.name, currentState.role)
+          };
+        } else {
+          return {
+            text: 'Maaf, terjadi kesalahan saat mendaftarkan akun Anda. Silakan coba lagi.',
+            keyboard: {
+              inline_keyboard: [
+                [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
+              ]
+            }
+          };
+        }
+      } else if (message === 'restart_registration' || normalizedMessage === 'tidak') {
+        this.registrationStates.delete(telegramId);
+        return await this.handleRegistrationFlow(telegramId, '/start', username);
+      }
+      
+      return {
+        text: 'Silakan konfirmasi pendaftaran dengan mengklik tombol di atas.',
+        keyboard: {
+          inline_keyboard: [
+            [
+              { text: '✅ Ya, Daftar', callback_data: 'confirm_registration' },
+              { text: '❌ Tidak, Ulangi', callback_data: 'restart_registration' }
+            ]
+          ]
+        }
+      };
+    }
+
+    // Fallback
+    return await this.handleRegistrationFlow(telegramId, '/start', username);
   }
 
   private isGreeting(message: string): boolean {

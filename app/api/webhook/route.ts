@@ -79,11 +79,34 @@ export async function POST(request: NextRequest) {
       const callbackQuery = body.callback_query
       const chatId = callbackQuery.message.chat.id.toString()
       const userId = callbackQuery.from.id.toString()
+      const telegramId = callbackQuery.from.id
+      const username = callbackQuery.from.username
       const callbackData = callbackQuery.data
       const messageId = callbackQuery.message.message_id
 
       // Answer callback query first
       await answerCallbackQuery(callbackQuery.id)
+
+      // Check if it's a registration callback
+      if (callbackData.startsWith('register_') || 
+          callbackData === 'use_telegram_username' || 
+          callbackData === 'confirm_registration' || 
+          callbackData === 'restart_registration') {
+        
+        const botLogic = new BotLogic()
+        const response = await botLogic.processMessage(userId, callbackData, telegramId, username)
+        
+        if (response) {
+          const sent = await sendTelegramMessage(chatId, response.text, response.keyboard)
+          
+          if (sent) {
+            await dbOperations.saveMessage(userId, `[CALLBACK] ${callbackData}`, response.text)
+            await dbOperations.updateBotStats()
+          }
+        }
+        
+        return NextResponse.json({ ok: true })
+      }
 
       // Process callback with order management bot
       const orderBot = new OrderManagementBot()
@@ -106,12 +129,32 @@ export async function POST(request: NextRequest) {
       const message = body.message
       const chatId = message.chat.id.toString()
       const userId = message.from.id.toString()
+      const telegramId = message.from.id
+      const username = message.from.username
       const text = message.text || ''
       const photo = message.photo
       const document = message.document
 
       if (!text && !photo && !document) {
         return NextResponse.json({ ok: true })
+      }
+
+      // First check if user needs registration (for text messages)
+      if (text) {
+        const botLogic = new BotLogic()
+        const registrationResponse = await botLogic.processMessage(userId, text, telegramId, username)
+        
+        // If response has keyboard (registration flow), send it
+        if (registrationResponse.keyboard) {
+          const sent = await sendTelegramMessage(chatId, registrationResponse.text, registrationResponse.keyboard)
+          
+          if (sent) {
+            await dbOperations.saveMessage(userId, text, registrationResponse.text)
+            await dbOperations.updateBotStats()
+          }
+          
+          return NextResponse.json({ ok: true })
+        }
       }
 
       // Process with order management bot

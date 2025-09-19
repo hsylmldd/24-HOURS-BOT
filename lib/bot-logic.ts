@@ -1,4 +1,4 @@
-import { dbOperations } from './supabase'
+import { dbOperations, supabaseAdmin } from './supabase'
 import { AuthService } from './auth'
 
 export class BotLogic {
@@ -36,13 +36,66 @@ export class BotLogic {
     }
   }
 
-  // Registration state management
-  private registrationStates = new Map<number, {
+  // Registration state management - now using database for persistence
+  private async getRegistrationState(telegramId: number): Promise<{
     step: 'role_selection' | 'name_input' | 'confirmation';
     role?: 'HD' | 'TEKNISI';
     name?: string;
     username?: string;
-  }>();
+  } | null> {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('registration_states')
+        .select('*')
+        .eq('telegram_id', telegramId)
+        .single();
+      
+      if (error || !data) return null;
+      
+      return {
+        step: data.step,
+        role: data.role,
+        name: data.name,
+        username: data.username
+      };
+    } catch (error) {
+      console.error('Error getting registration state:', error);
+      return null;
+    }
+  }
+
+  private async setRegistrationState(telegramId: number, state: {
+    step: 'role_selection' | 'name_input' | 'confirmation';
+    role?: 'HD' | 'TEKNISI';
+    name?: string;
+    username?: string;
+  }): Promise<void> {
+    try {
+      await supabaseAdmin
+        .from('registration_states')
+        .upsert({
+          telegram_id: telegramId,
+          step: state.step,
+          role: state.role,
+          name: state.name,
+          username: state.username,
+          updated_at: new Date().toISOString()
+        });
+    } catch (error) {
+      console.error('Error setting registration state:', error);
+    }
+  }
+
+  private async clearRegistrationState(telegramId: number): Promise<void> {
+    try {
+      await supabaseAdmin
+        .from('registration_states')
+        .delete()
+        .eq('telegram_id', telegramId);
+    } catch (error) {
+      console.error('Error clearing registration state:', error);
+    }
+  }
 
   async processMessage(userId: string, message: string, telegramId: number, username?: string): Promise<{ text: string; keyboard?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } }> {
     const normalizedMessage = message.toLowerCase().trim()
@@ -120,11 +173,11 @@ export class BotLogic {
 
   private async handleRegistrationFlow(telegramId: number, message: string, username?: string): Promise<{ text: string; keyboard?: any }> {
     const normalizedMessage = message.toLowerCase().trim();
-    const currentState = this.registrationStates.get(telegramId);
+    const currentState = await this.getRegistrationState(telegramId);
 
     // Start registration flow
     if (!currentState) {
-      this.registrationStates.set(telegramId, { step: 'role_selection', username });
+      await this.setRegistrationState(telegramId, { step: 'role_selection', username });
       return {
         text: this.responses.registration.welcome,
         keyboard: {
@@ -149,7 +202,7 @@ export class BotLogic {
       }
 
       if (selectedRole) {
-        this.registrationStates.set(telegramId, {
+        await this.setRegistrationState(telegramId, {
           ...currentState,
           step: 'name_input',
           role: selectedRole
@@ -188,7 +241,7 @@ export class BotLogic {
         finalName = message.trim();
       }
 
-      this.registrationStates.set(telegramId, {
+      await this.setRegistrationState(telegramId, {
         ...currentState,
         step: 'confirmation',
         name: finalName
@@ -219,7 +272,7 @@ export class BotLogic {
         });
 
         if (newUser) {
-          this.registrationStates.delete(telegramId);
+          await this.clearRegistrationState(telegramId);
           return {
             text: this.responses.registration.success(currentState.name, currentState.role)
           };
@@ -234,7 +287,7 @@ export class BotLogic {
           };
         }
       } else if (message === 'restart_registration' || normalizedMessage === 'tidak') {
-        this.registrationStates.delete(telegramId);
+        await this.clearRegistrationState(telegramId);
         return await this.handleRegistrationFlow(telegramId, '/start', username);
       }
       

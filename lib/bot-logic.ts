@@ -134,9 +134,9 @@ export class BotLogic {
     if (currentState.step === 'role_selection') {
       let selectedRole: 'HD' | 'TEKNISI' | null = null;
       
-      if (message === 'register_teknisi' || normalizedMessage.includes('teknisi')) {
+      if (message === 'register_teknisi' || normalizedMessage.includes('teknisi') || normalizedMessage === '1') {
         selectedRole = 'TEKNISI';
-      } else if (message === 'register_hd' || normalizedMessage.includes('hd') || normalizedMessage.includes('help desk')) {
+      } else if (message === 'register_hd' || normalizedMessage.includes('hd') || normalizedMessage.includes('help desk') || normalizedMessage === '2') {
         selectedRole = 'HD';
       }
 

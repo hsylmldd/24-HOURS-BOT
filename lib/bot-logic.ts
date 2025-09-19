@@ -44,14 +44,22 @@ export class BotLogic {
     username?: string;
   }>();
 
-  async processMessage(userId: string, message: string, telegramId: number, username?: string): Promise<{ text: string; keyboard?: any }> {
+  async processMessage(userId: string, message: string, telegramId: number, username?: string): Promise<{ text: string; keyboard?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } }> {
     const normalizedMessage = message.toLowerCase().trim()
-
+    
     try {
+      // Check if this is a registration callback - handle it regardless of user status
+      if (message.startsWith('register_') || 
+          message === 'use_telegram_username' || 
+          message === 'confirm_registration' || 
+          message === 'restart_registration') {
+        return await this.handleRegistrationFlow(telegramId, message, username);
+      }
+      
       // Check if user is registered
       const user = await AuthService.getUserByTelegramId(telegramId);
       
-      // Handle registration flow for unregistered users
+      // Handle registration flow for unregistered users (only for non-callback messages)
       if (!user) {
         return await this.handleRegistrationFlow(telegramId, message, username);
       }

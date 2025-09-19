@@ -6,8 +6,8 @@ export async function GET() {
     // Test database connection
     const { data, error } = await supabaseAdmin
       .from('bot_stats')
-      .select('status')
-      .eq('id', 'main')
+      .select('total_messages, total_orders, active_orders, completed_orders')
+      .limit(1)
       .single()
 
     if (error) {
@@ -17,7 +17,7 @@ export async function GET() {
     return NextResponse.json({
       status: 'healthy',
       database: 'connected',
-      bot_status: data?.status || 'unknown',
+      bot_stats: data || {},
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       memory: {

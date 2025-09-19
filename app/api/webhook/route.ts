@@ -27,6 +27,13 @@ async function sendTelegramMessage(
       body.reply_markup = replyMarkup
     }
 
+    console.log('=== SENDING TELEGRAM MESSAGE ===')
+    console.log('Chat ID:', chatId)
+    console.log('Text:', text)
+    console.log('Reply Markup:', JSON.stringify(replyMarkup, null, 2))
+    console.log('Body:', JSON.stringify(body, null, 2))
+    console.log('================================')
+
     const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: {
@@ -36,6 +43,7 @@ async function sendTelegramMessage(
     })
 
     const result = await response.json()
+    console.log('Telegram API Response:', JSON.stringify(result, null, 2))
     return result.ok
   } catch (error) {
     console.error('Error sending Telegram message:', error)

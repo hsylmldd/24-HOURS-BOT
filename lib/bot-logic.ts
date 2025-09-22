@@ -164,7 +164,7 @@ export class BotLogic {
       };
     }
 
-    // Handle role selection
+    // Handle role selection - Auto register with Telegram username
     if (currentState.step === 'role_selection') {
       let selectedRole: 'HD' | 'TEKNISI' | null = null;
       
@@ -175,20 +175,32 @@ export class BotLogic {
       }
 
       if (selectedRole) {
-        await this.setRegistrationState(telegramId, {
-          ...currentState,
-          step: 'name_input',
+        // Auto register immediately using Telegram username
+        const finalName = username || `User_${telegramId}`;
+        
+        // Register user to database immediately
+        const newUser = await AuthService.registerUser({
+          telegram_id: telegramId,
+          username: username,
+          full_name: finalName,
           role: selectedRole
         });
-        
-        return {
-          text: this.responses.registration.roleSelected(selectedRole),
-          keyboard: {
-            inline_keyboard: [
-              [{ text: '🤖 Gunakan Username Telegram', callback_data: 'use_telegram_username' }]
-            ]
-          }
-        };
+
+        if (newUser) {
+          await this.clearRegistrationState(telegramId);
+          return {
+            text: this.responses.registration.success(finalName, selectedRole)
+          };
+        } else {
+          return {
+            text: 'Maaf, terjadi kesalahan saat mendaftarkan akun Anda. Silakan coba lagi.',
+            keyboard: {
+              inline_keyboard: [
+                [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
+              ]
+            }
+          };
+        }
       }
       
       return {

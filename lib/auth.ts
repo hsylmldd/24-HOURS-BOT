@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, supabaseAdmin } from './supabase';
 
 export interface User {
   id: number;
@@ -47,7 +47,8 @@ export class AuthService {
     phone?: string;
   }): Promise<User | null> {
     try {
-      const { data, error } = await supabase
+      // Use supabaseAdmin for user registration to ensure proper permissions
+      const { data, error } = await supabaseAdmin
         .from('users')
         .insert([userData])
         .select()
@@ -65,7 +66,8 @@ export class AuthService {
   // Update user information
   static async updateUser(telegramId: number, updates: Partial<User>): Promise<User | null> {
     try {
-      const { data, error } = await supabase
+      // Use supabaseAdmin for user updates to ensure proper permissions
+      const { data, error } = await supabaseAdmin
         .from('users')
         .update(updates)
         .eq('telegram_id', telegramId)
@@ -134,7 +136,8 @@ export class AuthService {
   // Deactivate user
   static async deactivateUser(telegramId: number): Promise<boolean> {
     try {
-      const { error } = await supabase
+      // Use supabaseAdmin for user deactivation to ensure proper permissions
+      const { error } = await supabaseAdmin
         .from('users')
         .update({ is_active: false })
         .eq('telegram_id', telegramId);

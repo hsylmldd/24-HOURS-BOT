@@ -201,8 +201,20 @@ export class TelegramUI {
     return {
       inline_keyboard: [
         [
-          { text: '✅ Ya', callback_data: `confirm_${action}${data ? `_${data}` : ''}` },
-          { text: '❌ Tidak', callback_data: 'cancel' }
+          { text: '✅ Ya', callback_data: `confirm_${action}${data ? '_' + data : ''}` },
+          { text: '❌ Tidak', callback_data: `cancel_${action}` }
+        ]
+      ]
+    };
+  }
+
+  // Create error keyboard for retry actions
+  static getErrorKeyboard(): InlineKeyboardMarkup {
+    return {
+      inline_keyboard: [
+        [
+          { text: '🔄 Coba Lagi', callback_data: 'retry_action' },
+          { text: '❓ Bantuan', callback_data: 'help' }
         ]
       ]
     };

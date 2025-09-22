@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, supabaseAdmin } from './supabase';
 import { User } from './auth';
 
 export interface Order {
@@ -75,26 +75,75 @@ export class OrderService {
     assigned_technician_id?: number;
   }): Promise<Order | null> {
     try {
-      const { data, error } = await supabase
+      console.log('OrderService.createOrder called with data:', JSON.stringify(orderData, null, 2));
+      
+      // Validate required fields
+      if (!orderData.customer_name || !orderData.customer_address || !orderData.customer_contact ||
+          !orderData.sto || !orderData.transaction_type || !orderData.service_type ||
+          !orderData.created_by_hd_id) {
+        console.error('Missing required fields in order data:', orderData);
+        return null;
+      }
+
+      // Prepare the insert data
+      const insertData = {
+        ...orderData,
+        order_number: '', // Let the database trigger generate this
+        status: 'PENDING' as const,
+        current_stage: 'SURVEY' as const,
+        evidence_complete: false,
+        sla_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString() // 72 hours from now
+      };
+
+      console.log('Inserting order with data:', JSON.stringify(insertData, null, 2));
+      
+      // Use supabaseAdmin for database operations that require elevated permissions
+      const { data, error } = await supabaseAdmin
         .from('orders')
-        .insert([{
-          ...orderData,
-          sla_deadline: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString() // 72 hours from now
-        }])
+        .insert([insertData])
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error creating order:', error);
+        console.error('Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
+        return null;
+      }
+
+      if (!data) {
+        console.error('No data returned from order creation');
+        return null;
+      }
+
+      console.log('Order created successfully:', JSON.stringify(data, null, 2));
 
       // Log order creation
-      await this.logProgress(data.id, 'SURVEY', 'STARTED', 'Order created', orderData.created_by_hd_id);
+      try {
+        await this.logProgress(data.id, 'SURVEY', 'STARTED', 'Order created', orderData.created_by_hd_id);
+        console.log('Progress log created for order:', data.id);
+      } catch (logError) {
+        console.error('Error logging progress:', logError);
+        // Continue even if logging fails
+      }
 
       // Update bot stats
-      await this.updateBotStats();
+      try {
+        await this.updateBotStats();
+        console.log('Bot stats updated');
+      } catch (statsError) {
+        console.error('Error updating bot stats:', statsError);
+        // Continue even if stats update fails
+      }
 
       return data;
     } catch (error) {
       console.error('Error creating order:', error);
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       return null;
     }
   }
@@ -185,7 +234,8 @@ export class OrderService {
   // Assign technician to order
   static async assignTechnician(orderId: number, technicianId: number, assignedBy: number): Promise<boolean> {
     try {
-      const { error } = await supabase
+      // Use supabaseAdmin for order updates to ensure proper permissions
+      const { error } = await supabaseAdmin
         .from('orders')
         .update({ 
           assigned_technician_id: technicianId,
@@ -235,7 +285,7 @@ export class OrderService {
         updateData.status = 'IN_PROGRESS';
       }
 
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('orders')
         .update(updateData)
         .eq('id', orderId);
@@ -286,7 +336,8 @@ export class OrderService {
       if (sodTime) updateData.sod_time = sodTime;
       if (e2eTime) updateData.e2e_time = e2eTime;
 
-      const { error } = await supabase
+      // Use supabaseAdmin for order updates to ensure proper permissions
+      const { error } = await supabaseAdmin
         .from('orders')
         .update(updateData)
         .eq('id', orderId);
@@ -310,7 +361,8 @@ export class OrderService {
         updateData.status = 'IN_PROGRESS'; // Resume from ON_HOLD
       }
 
-      const { error } = await supabase
+      // Use supabaseAdmin for order updates to ensure proper permissions
+      const { error } = await supabaseAdmin
         .from('orders')
         .update(updateData)
         .eq('id', orderId);

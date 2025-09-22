@@ -70,9 +70,9 @@ export class BotLogic {
   }
 
   async processMessage(userId: string, message: string, telegramId: number, username?: string): Promise<{ text: string; keyboard?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } }> {
-    const normalizedMessage = message.toLowerCase().trim()
-    
     try {
+      console.log(`Processing message from user ${telegramId}: "${message}"`);
+      
       // Check if this is a registration callback - handle it regardless of user status
       if (message.startsWith('register_') || 
           message === 'use_telegram_username' || 
@@ -86,9 +86,14 @@ export class BotLogic {
       
       // Handle registration flow for unregistered users (only for non-callback messages)
       if (!user) {
+        console.log(`User ${telegramId} not registered, starting registration flow`);
         return await this.handleRegistrationFlow(telegramId, message, username);
       }
 
+      console.log(`User ${telegramId} is registered as ${user.role}, processing command`);
+      
+      const normalizedMessage = message.toLowerCase().trim();
+      
       // Ambil riwayat pesan user untuk konteks
       const userHistory = await dbOperations.getUserMessages(userId, 5)
       
@@ -138,31 +143,54 @@ export class BotLogic {
       return { text: this.getRandomResponse(this.responses.default) }
 
     } catch (error) {
-      console.error('Error processing message:', error)
-      return { text: 'Maaf, terjadi kesalahan saat memproses pesan Anda. Silakan coba lagi.' }
+      console.error('Error in processMessage:', error);
+      return { 
+        text: '❌ Terjadi kesalahan saat memproses pesan Anda.\n\nSilakan coba lagi atau ketik /help untuk bantuan.',
+        keyboard: {
+          inline_keyboard: [[
+            { text: '🔄 Coba Lagi', callback_data: 'retry_message' },
+            { text: '❓ Bantuan', callback_data: 'help' }
+          ]]
+        }
+      };
     }
   }
 
   // Make handleRegistrationFlow public so it can be called from webhook
   public async handleRegistrationFlow(telegramId: number, message: string, username?: string): Promise<{ text: string; keyboard?: any }> {
-    const normalizedMessage = message.toLowerCase().trim();
-    
-    // Check if user is already registered (like bot.js checkUserRegistration)
-    const existingUser = await AuthService.getUserByTelegramId(telegramId);
-    if (existingUser) {
-      return {
-        text: `Halo ${existingUser.full_name}! 👋\n\nSelamat datang kembali di Order Management Bot!\n\nAnda sudah terdaftar sebagai ${existingUser.role}.`
-      };
-    }
+    try {
+      const normalizedMessage = message.toLowerCase().trim();
+      
+      // Check if user is already registered (like bot.js checkUserRegistration)
+      const existingUser = await AuthService.getUserByTelegramId(telegramId);
+      if (existingUser) {
+        // Log successful user check
+        console.log(`User ${telegramId} already registered as ${existingUser.role}`);
+        return {
+          text: `Halo ${existingUser.full_name}! 👋\n\nSelamat datang kembali di Order Management Bot!\n\nAnda sudah terdaftar sebagai ${existingUser.role}.\n\nKetik /help untuk melihat perintah yang tersedia.`
+        };
+      }
 
-    // User not registered, show registration options (like bot.js)
-    if (message === '/start' || !message || message === 'restart_registration') {
+      // User not registered, show registration options (like bot.js)
+      if (message === '/start' || !message || message === 'restart_registration') {
+        console.log(`Showing registration options to user ${telegramId}`);
+        return {
+          text: `Halo! 👋\n\nSelamat datang di Order Management Bot!\n\nAnda belum terdaftar dalam sistem.\nSilakan pilih role Anda:`,
+          keyboard: {
+            inline_keyboard: [
+              [{ text: '📋 Daftar sebagai HD (Helpdesk)', callback_data: 'register_hd' }],
+              [{ text: '🔧 Daftar sebagai Teknisi', callback_data: 'register_teknis' }]
+            ]
+          }
+        };
+      }
+    } catch (error) {
+      console.error('Error in handleRegistrationFlow user check:', error);
       return {
-        text: `Halo! 👋\n\nSelamat datang di Order Management Bot!\n\nAnda belum terdaftar dalam sistem.\nSilakan pilih role Anda:`,
+        text: '❌ Terjadi kesalahan saat memeriksa status registrasi. Silakan coba lagi.',
         keyboard: {
           inline_keyboard: [
-            [{ text: '📋 Daftar sebagai HD (Helpdesk)', callback_data: 'register_hd' }],
-            [{ text: '🔧 Daftar sebagai Teknisi', callback_data: 'register_teknis' }]
+            [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
           ]
         }
       };
@@ -173,6 +201,20 @@ export class BotLogic {
       const firstName = username || 'User';
       
       try {
+        console.log(`Attempting to register user ${telegramId} as HD with name: ${firstName}`);
+        
+        // Validate input
+        if (!firstName || firstName.trim().length < 2) {
+          return {
+            text: '❌ Nama tidak valid. Silakan coba lagi.',
+            keyboard: {
+              inline_keyboard: [
+                [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
+              ]
+            }
+          };
+        }
+        
         // Register user directly (like bot.js registerUser function)
         const newUser = await AuthService.registerUser({
           telegram_id: telegramId,
@@ -182,16 +224,17 @@ export class BotLogic {
         });
 
         if (newUser) {
+          console.log(`Successfully registered user ${telegramId} as HD`);
           return {
-            text: '✅ Registrasi Berhasil!\n\nAnda telah terdaftar sebagai HD (Helpdesk).\n\nSelamat datang di Order Management Bot!'
+            text: '✅ Registrasi Berhasil!\n\nAnda telah terdaftar sebagai HD (Helpdesk).\n\nSelamat datang di Order Management Bot!\n\nKetik /help untuk melihat perintah yang tersedia.'
           };
         } else {
-          throw new Error('Failed to register user');
+          throw new Error('Failed to register user - no user returned');
         }
       } catch (error) {
-        console.error('Registration error:', error);
+        console.error('Registration error for HD:', error);
         return {
-          text: '❌ Terjadi kesalahan saat registrasi. Silakan coba lagi.',
+          text: '❌ Terjadi kesalahan saat registrasi. Silakan coba lagi.\n\nDetail error: ' + (error instanceof Error ? error.message : 'Unknown error'),
           keyboard: {
             inline_keyboard: [
               [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
@@ -205,6 +248,20 @@ export class BotLogic {
       const firstName = username || 'User';
       
       try {
+        console.log(`Attempting to register user ${telegramId} as TEKNISI with name: ${firstName}`);
+        
+        // Validate input
+        if (!firstName || firstName.trim().length < 2) {
+          return {
+            text: '❌ Nama tidak valid. Silakan coba lagi.',
+            keyboard: {
+              inline_keyboard: [
+                [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
+              ]
+            }
+          };
+        }
+        
         // Register user directly (like bot.js registerUser function)
         const newUser = await AuthService.registerUser({
           telegram_id: telegramId,
@@ -214,16 +271,17 @@ export class BotLogic {
         });
 
         if (newUser) {
+          console.log(`Successfully registered user ${telegramId} as TEKNISI`);
           return {
-            text: '✅ Registrasi Berhasil!\n\nAnda telah terdaftar sebagai Teknisi.\n\nSelamat datang di Order Management Bot!'
+            text: '✅ Registrasi Berhasil!\n\nAnda telah terdaftar sebagai Teknisi.\n\nSelamat datang di Order Management Bot!\n\nKetik /help untuk melihat perintah yang tersedia.'
           };
         } else {
-          throw new Error('Failed to register user');
+          throw new Error('Failed to register user - no user returned');
         }
       } catch (error) {
-        console.error('Registration error:', error);
+        console.error('Registration error for TEKNISI:', error);
         return {
-          text: '❌ Terjadi kesalahan saat registrasi. Silakan coba lagi.',
+          text: '❌ Terjadi kesalahan saat registrasi. Silakan coba lagi.\n\nDetail error: ' + (error instanceof Error ? error.message : 'Unknown error'),
           keyboard: {
             inline_keyboard: [
               [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
@@ -248,15 +306,26 @@ export class BotLogic {
 
   private async getStatsResponse(): Promise<string> {
     try {
-      const stats = await dbOperations.getBotStats()
+      console.log('Fetching bot statistics...');
+      const stats = await dbOperations.getBotStats();
+      
+      if (!stats) {
+        console.warn('No stats returned from database');
+        return '📊 Statistik Bot:\n\n❌ Data statistik tidak tersedia saat ini.\nSilakan coba lagi nanti.';
+      }
+
+      console.log('Stats retrieved successfully:', stats);
+      
       return `📊 Statistik Bot:
-• Total Pesan: ${stats.total_messages}
-• Total User: ${stats.total_users}
+• Total Pesan: ${stats.total_messages || 0}
+• Total User: ${stats.total_users || 0}
 • Status: ${stats.status === 'online' ? '🟢 Online' : '🔴 Offline'}
-• Aktivitas Terakhir: ${new Date(stats.last_activity).toLocaleString('id-ID')}
-• Uptime: ${Math.floor(process.uptime() / 3600)} jam`
+• Aktivitas Terakhir: ${stats.last_activity ? new Date(stats.last_activity).toLocaleString('id-ID') : 'Tidak diketahui'}
+• Uptime: ${Math.floor(process.uptime() / 3600)} jam`;
+      
     } catch (error) {
-      return 'Maaf, tidak bisa mengambil statistik saat ini.'
+      console.error('Error fetching bot statistics:', error);
+      return '📊 Statistik Bot:\n\n❌ Maaf, tidak bisa mengambil statistik saat ini.\n\nDetail error: ' + (error instanceof Error ? error.message : 'Unknown error');
     }
   }
 

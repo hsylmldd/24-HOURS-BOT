@@ -16,22 +16,28 @@ export class OrderManagementBot {
     const normalizedMessage = message.toLowerCase().trim();
 
     try {
+      console.log(`Processing message from user ${telegramId}: "${message}"`);
+      
       // Get user info
       const user = await AuthService.getUserByTelegramId(telegramId);
 
       // Handle /start command
       if (normalizedMessage.includes('/start')) {
+        console.log(`Handling /start command for user ${telegramId}`);
         return await this.handleStart(user, telegramId);
       }
 
       // If user not registered, show registration message
       if (!user) {
+        console.log(`User ${telegramId} not registered in order management system`);
         return {
           text: '👋 Selamat datang di Order Management Bot!\n\n' +
                 'Anda belum terdaftar dalam sistem. Silakan hubungi administrator untuk mendaftarkan akun Anda dengan role yang sesuai (HD atau Teknisi).\n\n' +
                 'Setelah terdaftar, gunakan /start untuk memulai.'
         };
       }
+
+      console.log(`User ${telegramId} found with role: ${user.role}`);
 
       // Handle commands based on user role
       if (normalizedMessage.includes('/help')) {
@@ -75,16 +81,19 @@ export class OrderManagementBot {
       // Handle session-based input
       const session = UserSession.getSession(telegramId);
       if (session && session.state) {
+        console.log(`Handling session input for user ${telegramId}, state: ${session.state}`);
         return await this.handleSessionInput(telegramId, message, session);
       }
 
       // Default response with role-specific menu
+      console.log(`Returning main menu for user ${telegramId} with role: ${user.role}`);
       return this.getMainMenu(user.role);
 
     } catch (error) {
       console.error('Error processing message:', error);
       return {
-        text: 'Maaf, terjadi kesalahan saat memproses pesan Anda. Silakan coba lagi.'
+        text: '❌ Maaf, terjadi kesalahan saat memproses pesan Anda.\n\nSilakan coba lagi atau ketik /help untuk bantuan.\n\nDetail: ' + (error instanceof Error ? error.message : 'Unknown error'),
+        replyMarkup: TelegramUI.getErrorKeyboard()
       };
     }
   }
@@ -371,47 +380,81 @@ export class OrderManagementBot {
 
   // Handle order creation input
   private async handleOrderCreationInput(telegramId: number, message: string, session: any): Promise<BotResponse> {
-    const { step, orderData } = session;
+    try {
+      const { step, orderData } = session;
+      console.log(`Order creation step: ${step}, user: ${telegramId}, message: ${message}`);
 
-    switch (step) {
-      case 'customer_name':
-        orderData.customer_name = message;
-        UserSession.setSession(telegramId, {
-          ...session,
-          step: 'customer_address',
-          orderData
-        });
-        return {
-          text: '📍 Masukkan alamat pelanggan:'
-        };
+      switch (step) {
+        case 'customer_name':
+          // Validate customer name
+          if (!message || message.trim().length < 2) {
+            return {
+              text: '❌ Nama pelanggan tidak valid. Masukkan nama yang benar (minimal 2 karakter):'
+            };
+          }
+          
+          orderData.customer_name = message.trim();
+          UserSession.setSession(telegramId, {
+            ...session,
+            step: 'customer_address',
+            orderData
+          });
+          return {
+            text: '📍 Masukkan alamat pelanggan:'
+          };
 
-      case 'customer_address':
-        orderData.customer_address = message;
-        UserSession.setSession(telegramId, {
-          ...session,
-          step: 'customer_phone',
-          orderData
-        });
-        return {
-          text: '📞 Masukkan nomor telepon pelanggan:'
-        };
+        case 'customer_address':
+          // Validate customer address
+          if (!message || message.trim().length < 5) {
+            return {
+              text: '❌ Alamat tidak valid. Masukkan alamat lengkap (minimal 5 karakter):'
+            };
+          }
+          
+          orderData.customer_address = message.trim();
+          UserSession.setSession(telegramId, {
+            ...session,
+            step: 'customer_phone',
+            orderData
+          });
+          return {
+            text: '📞 Masukkan nomor telepon pelanggan:'
+          };
 
-      case 'customer_phone':
-        orderData.customer_phone = message;
-        UserSession.setSession(telegramId, {
-          ...session,
-          step: 'sto_selection',
-          orderData
-        });
-        return {
-          text: '🏢 Pilih STO:',
-          replyMarkup: TelegramUI.getSTOSelectionKeyboard()
-        };
+        case 'customer_phone':
+          // Validate phone number
+          const phoneRegex = /^[\d\-\+\(\)\s]{8,15}$/;
+          if (!message || !phoneRegex.test(message.trim())) {
+            return {
+              text: '❌ Nomor telepon tidak valid. Masukkan nomor telepon yang benar (8-15 digit):'
+            };
+          }
+          
+          orderData.customer_contact = message.trim(); // Fix: use customer_contact to match database schema
+          UserSession.setSession(telegramId, {
+            ...session,
+            step: 'sto_selection',
+            orderData
+          });
+          console.log(`Order data ready for STO selection:`, orderData);
+          return {
+            text: '🏢 Pilih STO:',
+            replyMarkup: TelegramUI.getSTOSelectionKeyboard()
+          };
 
-      default:
-        return {
-          text: 'Langkah tidak valid. Silakan mulai ulang dengan /order'
-        };
+        default:
+          console.error(`Invalid order creation step: ${step}`);
+          UserSession.clearSession(telegramId);
+          return {
+            text: '❌ Langkah tidak valid. Silakan mulai ulang dengan /order'
+          };
+      }
+    } catch (error) {
+      console.error('Error in handleOrderCreationInput:', error);
+      UserSession.clearSession(telegramId);
+      return {
+        text: '❌ Terjadi kesalahan saat memproses input. Silakan mulai ulang dengan /order'
+      };
     }
   }
 
@@ -486,60 +529,103 @@ export class OrderManagementBot {
 
   // Handle technician assignment
   private async handleTechnicianAssignment(telegramId: number, callbackData: string): Promise<BotResponse> {
-    const session = UserSession.getSession(telegramId);
-    if (!session || session.state !== 'creating_order') {
-      return { text: 'Sesi tidak valid. Silakan mulai ulang dengan /order' };
-    }
-
-    const technicianId = parseInt(callbackData.replace('assign_tech_', ''));
-    const user = await AuthService.getUserByTelegramId(telegramId);
-    
-    if (!user) {
-      return { text: 'User tidak ditemukan.' };
-    }
-
-    // Create the order
-    const orderData = {
-      ...session.orderData,
-      created_by_hd_id: user.id,
-      assigned_technician_id: technicianId
-    };
-
     try {
-      const order = await OrderService.createOrder(orderData);
+      const session = UserSession.getSession(telegramId);
+      if (!session || session.state !== 'creating_order') {
+        console.error(`Invalid session for technician assignment, user: ${telegramId}`);
+        return { text: '❌ Sesi tidak valid. Silakan mulai ulang dengan /order' };
+      }
+
+      const technicianId = parseInt(callbackData.replace('assign_tech_', ''));
+      if (isNaN(technicianId)) {
+        console.error(`Invalid technician ID: ${callbackData}`);
+        return { text: '❌ ID teknisi tidak valid. Silakan pilih teknisi yang benar.' };
+      }
+
+      const user = await AuthService.getUserByTelegramId(telegramId);
+      if (!user) {
+        console.error(`User not found for telegram ID: ${telegramId}`);
+        return { text: '❌ User tidak ditemukan.' };
+      }
+
+      // Validate order data before creating
+      const { orderData } = session;
+      console.log('Validating order data:', orderData);
+      
+      if (!orderData.customer_name || !orderData.customer_address || !orderData.customer_contact || 
+          !orderData.sto || !orderData.transaction_type || !orderData.service_type) {
+        console.error('Incomplete order data:', orderData);
+        UserSession.clearSession(telegramId);
+        return { 
+          text: '❌ Data order tidak lengkap. Silakan mulai ulang dengan /order',
+          replyMarkup: TelegramUI.getHDMainMenu()
+        };
+      }
+
+      // Create the order
+      const completeOrderData = {
+        customer_name: orderData.customer_name,
+        customer_address: orderData.customer_address,
+        customer_contact: orderData.customer_contact,
+        sto: orderData.sto,
+        transaction_type: orderData.transaction_type,
+        service_type: orderData.service_type,
+        created_by_hd_id: user.id,
+        assigned_technician_id: technicianId
+      };
+
+      console.log('Attempting to create order with data:', completeOrderData);
+
+      console.log('About to call OrderService.createOrder with:', completeOrderData);
+      const order = await OrderService.createOrder(completeOrderData);
       
       if (order) {
+        console.log(`Order created successfully with ID: ${order.id}, order_number: ${order.order_number}`);
+        
         // Clear session
         UserSession.clearSession(telegramId);
 
         // Send notification to technician
-        await NotificationService.notifyOrderAssignment(order.id, technicianId);
+        try {
+          await NotificationService.notifyOrderAssignment(order.id, technicianId);
+          console.log(`Notification sent to technician ${technicianId} for order ${order.id}`);
+        } catch (notifError) {
+          console.error('Error sending notification:', notifError);
+          // Continue even if notification fails
+        }
 
         const technician = await AuthService.getUserById(technicianId);
 
         return {
           text: `✅ *Order berhasil dibuat!*\n\n` +
+                `📋 Order Number: ${order.order_number}\n` +
                 `📋 Order ID: #${order.id}\n` +
                 `👤 Pelanggan: ${order.customer_name}\n` +
                 `📍 Alamat: ${order.customer_address}\n` +
-                `📞 Telepon: ${order.customer_name}\n` +
+                `📞 Kontak: ${order.customer_contact}\n` +
                 `🏢 STO: ${order.sto}\n` +
-                `🔄 Transaksi: ${order.transaction_type}\n` +
-                `🛠️ Layanan: ${order.service_type}\n` +
-                `👨‍🔧 Teknisi: ${technician?.full_name}\n\n` +
-                `Teknisi telah mendapat notifikasi dan dapat mulai bekerja.`,
+                `🔄 Tipe Transaksi: ${order.transaction_type}\n` +
+                `🛠️ Jenis Layanan: ${order.service_type}\n` +
+                `👨‍🔧 Teknisi: ${technician?.full_name || 'Unknown'}\n\n` +
+                `Status: ${order.status}\n` +
+                `Tahap: ${order.current_stage}`,
           replyMarkup: TelegramUI.getHDMainMenu()
         };
       } else {
+        console.error(`Failed to create order for user ${telegramId}. OrderService.createOrder returned null`);
+        UserSession.clearSession(telegramId);
         return {
-          text: 'Gagal membuat order. Silakan coba lagi.'
+          text: '❌ Gagal membuat order. Terjadi kesalahan pada database.\n\nSilakan coba lagi atau hubungi administrator jika masalah berlanjut.',
+          replyMarkup: TelegramUI.getErrorKeyboard()
         };
       }
 
     } catch (error) {
-      console.error('Error creating order:', error);
+      console.error('Error in handleTechnicianAssignment:', error);
+      UserSession.clearSession(telegramId);
       return {
-        text: 'Terjadi kesalahan saat membuat order.'
+        text: '❌ Terjadi kesalahan saat membuat order.\n\nDetail: ' + (error instanceof Error ? error.message : 'Unknown error'),
+        replyMarkup: TelegramUI.getHDMainMenu()
       };
     }
   }

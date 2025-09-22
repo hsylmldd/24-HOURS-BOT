@@ -146,77 +146,94 @@ export class BotLogic {
   // Make handleRegistrationFlow public so it can be called from webhook
   public async handleRegistrationFlow(telegramId: number, message: string, username?: string): Promise<{ text: string; keyboard?: any }> {
     const normalizedMessage = message.toLowerCase().trim();
-    const currentState = await this.getRegistrationState(telegramId);
-
-    // Start registration flow
-    if (!currentState) {
-      await this.setRegistrationState(telegramId, { step: 'role_selection', username });
+    
+    // Check if user is already registered (like bot.js checkUserRegistration)
+    const existingUser = await AuthService.getUserByTelegramId(telegramId);
+    if (existingUser) {
       return {
-        text: this.responses.registration.welcome,
+        text: `Halo ${existingUser.full_name}! 👋\n\nSelamat datang kembali di Order Management Bot!\n\nAnda sudah terdaftar sebagai ${existingUser.role}.`
+      };
+    }
+
+    // User not registered, show registration options (like bot.js)
+    if (message === '/start' || !message || message === 'restart_registration') {
+      return {
+        text: `Halo! 👋\n\nSelamat datang di Order Management Bot!\n\nAnda belum terdaftar dalam sistem.\nSilakan pilih role Anda:`,
         keyboard: {
           inline_keyboard: [
-            [
-              { text: '👨‍💻 Teknisi', callback_data: 'register_teknisi' },
-              { text: '🎧 Help Desk (HD)', callback_data: 'register_hd' }
-            ]
+            [{ text: '📋 Daftar sebagai HD (Helpdesk)', callback_data: 'register_hd' }],
+            [{ text: '🔧 Daftar sebagai Teknisi', callback_data: 'register_teknis' }]
           ]
         }
       };
     }
 
-    // Handle role selection - Auto register with Telegram username
-    if (currentState.step === 'role_selection') {
-      let selectedRole: 'HD' | 'TEKNISI' | null = null;
+    // Handle registration callback (like bot.js callback handling)
+    if (message === 'register_hd') {
+      const firstName = username || 'User';
       
-      if (message === 'register_teknisi' || normalizedMessage.includes('teknisi') || normalizedMessage === '1') {
-        selectedRole = 'TEKNISI';
-      } else if (message === 'register_hd' || normalizedMessage.includes('hd') || normalizedMessage.includes('help desk') || normalizedMessage === '2') {
-        selectedRole = 'HD';
-      }
-
-      if (selectedRole) {
-        // Auto register immediately using Telegram username
-        const finalName = username || `User_${telegramId}`;
-        
-        // Register user to database immediately
+      try {
+        // Register user directly (like bot.js registerUser function)
         const newUser = await AuthService.registerUser({
           telegram_id: telegramId,
           username: username,
-          full_name: finalName,
-          role: selectedRole
+          full_name: firstName,
+          role: 'HD'
         });
 
         if (newUser) {
-          await this.clearRegistrationState(telegramId);
           return {
-            text: this.responses.registration.success(finalName, selectedRole)
+            text: '✅ Registrasi Berhasil!\n\nAnda telah terdaftar sebagai HD (Helpdesk).\n\nSelamat datang di Order Management Bot!'
           };
         } else {
-          return {
-            text: 'Maaf, terjadi kesalahan saat mendaftarkan akun Anda. Silakan coba lagi.',
-            keyboard: {
-              inline_keyboard: [
-                [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
-              ]
-            }
-          };
+          throw new Error('Failed to register user');
         }
-      }
-      
-      return {
-        text: 'Silakan pilih role Anda dengan mengklik tombol di atas.',
-        keyboard: {
-          inline_keyboard: [
-            [
-              { text: '👨‍💻 Teknisi', callback_data: 'register_teknisi' },
-              { text: '🎧 Help Desk (HD)', callback_data: 'register_hd' }
+      } catch (error) {
+        console.error('Registration error:', error);
+        return {
+          text: '❌ Terjadi kesalahan saat registrasi. Silakan coba lagi.',
+          keyboard: {
+            inline_keyboard: [
+              [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
             ]
-          ]
-        }
-      };
+          }
+        };
+      }
     }
 
-    // Fallback - restart registration
+    if (message === 'register_teknis') {
+      const firstName = username || 'User';
+      
+      try {
+        // Register user directly (like bot.js registerUser function)
+        const newUser = await AuthService.registerUser({
+          telegram_id: telegramId,
+          username: username,
+          full_name: firstName,
+          role: 'TEKNISI'
+        });
+
+        if (newUser) {
+          return {
+            text: '✅ Registrasi Berhasil!\n\nAnda telah terdaftar sebagai Teknisi.\n\nSelamat datang di Order Management Bot!'
+          };
+        } else {
+          throw new Error('Failed to register user');
+        }
+      } catch (error) {
+        console.error('Registration error:', error);
+        return {
+          text: '❌ Terjadi kesalahan saat registrasi. Silakan coba lagi.',
+          keyboard: {
+            inline_keyboard: [
+              [{ text: '🔄 Coba Lagi', callback_data: 'restart_registration' }]
+            ]
+          }
+        };
+      }
+    }
+
+    // Fallback - show registration options again
     return await this.handleRegistrationFlow(telegramId, '/start', username);
   }
 
